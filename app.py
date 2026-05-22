@@ -168,7 +168,9 @@ h1, h2, h3, h4, h5, h6 {
     color: var(--text) !important;
     font-family: 'JetBrains Mono', monospace !important;
 }
-
+[data-testid="InputInstructions"] {
+    display: none;
+}
 .stTextInput > div > div > input:focus {
     border-color: var(--accent) !important;
     box-shadow: 0 0 0 2px rgba(124,58,237,0.2) !important;
@@ -197,34 +199,6 @@ h1, h2, h3, h4, h5, h6 {
 .stButton > button[kind="secondary"] {
     background: var(--surface-2) !important;
     border: 1px solid var(--border) !important;
-}
-
-/* ── Progress / Status ── */
-.status-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    background: var(--surface-2);
-    border-radius: 8px;
-    margin: 0.4rem 0;
-    border: 1px solid var(--border);
-    font-size: 0.8rem;
-}
-
-.status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-.dot-active   { background: var(--accent-glow); box-shadow: 0 0 8px var(--accent-glow); animation: pulse 1.5s infinite; }
-.dot-done     { background: var(--success); }
-.dot-pending  { background: var(--border); }
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.4; }
 }
 
 /* ── Chat ── */
@@ -309,29 +283,13 @@ for key, default in {
     "chat_history": [],
     "processing": False,
     "pipeline_done": False,
-    "pipeline_steps": {},
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ─── Helpers ────────────────────────────────────────────────────────────────────
-def step_status(steps: dict, key: str) -> str:
-    s = steps.get(key, "pending")
-    if s == "active":  return "dot-active"
-    if s == "done":    return "dot-done"
-    return "dot-pending"
-
-def render_step_bar(label: str, key: str, icon: str):
-    css = step_status(st.session_state.pipeline_steps, key)
-    st.markdown(f"""
-    <div class="status-bar">
-        <div class="status-dot {css}"></div>
-        <span>{icon} {label}</span>
-    </div>""", unsafe_allow_html=True)
-
 # ─── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div class="hero-title" style="font-size:1.6rem">🎬 AI<br>Video</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-title" style="font-size:1.6rem">🎬 Wowvideo<br>AI</div>', unsafe_allow_html=True)
     st.markdown('<div class="hero-sub">Meeting Intelligence</div>', unsafe_allow_html=True)
     st.markdown("---")
 
@@ -342,18 +300,9 @@ with st.sidebar:
 
     run_btn = st.button("⚡  Analyse", use_container_width=True)
 
-    if st.session_state.pipeline_done:
-        st.markdown("---")
-        st.markdown('<span class="badge badge-green">Pipeline Status</span>', unsafe_allow_html=True)
-        for step, icon, label in [
-            ("audio",      "🔊", "Audio Processing"),
-            ("transcript", "📝", "Transcription"),
-            ("title",      "🏷️", "Title Generation"),
-            ("summary",    "📋", "Summarisation"),
-            ("extract",    "🔍", "Extraction"),
-            ("rag",        "🧠", "RAG Engine"),
-        ]:
-            render_step_bar(label, step, icon)
+    st.markdown("---")
+    # This placeholder is where the live st.status widget will appear during the run
+    sidebar_status_placeholder = st.empty()
 
 # ─── Main Area ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="hero-title">AI Video Assistant</div>', unsafe_allow_html=True)
@@ -368,42 +317,33 @@ if run_btn:
         st.session_state.pipeline_done = False
         st.session_state.result = None
         st.session_state.chat_history = []
-        st.session_state.pipeline_steps = {}
-
-        progress_placeholder = st.empty()
-
-        def update_step(key, state):
-            st.session_state.pipeline_steps[key] = state
 
         try:
-            with progress_placeholder.container():
-                st.info("⚙️ Pipeline running — see sidebar for live status…")
+            # ── st.status renders live inside the sidebar as each step completes ──
+            with sidebar_status_placeholder:
+                with st.status("⚙️ Pipeline running…", expanded=True) as status:
 
-            update_step("audio", "active")
-            chunks = process_input(source)
-            update_step("audio", "done")
+                    st.write("🔊 Processing audio…")
+                    chunks = process_input(source)
 
-            update_step("transcript", "active")
-            transcript = transcribe_all(chunks, language)
-            update_step("transcript", "done")
+                    st.write("📝 Transcribing…")
+                    transcript = transcribe_all(chunks, language)
 
-            update_step("title", "active")
-            title = generate_title(transcript)
-            update_step("title", "done")
+                    st.write("🏷️ Generating title…")
+                    title = generate_title(transcript)
 
-            update_step("summary", "active")
-            summary = summarize(transcript)
-            update_step("summary", "done")
+                    st.write("📋 Summarising…")
+                    summary = summarize(transcript)
 
-            update_step("extract", "active")
-            action_items  = extract_actions(transcript)
-            decisions     = extract_key_decisions(transcript)
-            questions     = extract_questions(transcript)
-            update_step("extract", "done")
+                    st.write("🔍 Extracting actions, decisions & questions…")
+                    action_items = extract_actions(transcript)
+                    decisions    = extract_key_decisions(transcript)
+                    questions    = extract_questions(transcript)
 
-            update_step("rag", "active")
-            rag_chain = build_rag_chain(transcript)
-            update_step("rag", "done")
+                    st.write("🧠 Building RAG engine…")
+                    rag_chain = build_rag_chain(transcript)
+
+                    status.update(label="✅ Analysis complete!", state="complete", expanded=False)
 
             st.session_state.result = {
                 "title": title,
@@ -415,16 +355,10 @@ if run_btn:
                 "rag_chain": rag_chain,
             }
             st.session_state.pipeline_done = True
-            progress_placeholder.success("✅ Analysis complete!")
-            time.sleep(0.5)
-            progress_placeholder.empty()
             st.rerun()
 
         except Exception as e:
-            for k in ["audio","transcript","title","summary","extract","rag"]:
-                if st.session_state.pipeline_steps.get(k) == "active":
-                    st.session_state.pipeline_steps[k] = "pending"
-            progress_placeholder.error(f"❌ Error: {e}")
+            sidebar_status_placeholder.error(f"❌ Error: {e}")
 
 # ── Results ──────────────────────────────────────────────────────────────────────
 if st.session_state.result:
@@ -482,7 +416,6 @@ if st.session_state.result:
     # ── RAG Chat ──────────────────────────────────────────────────────────────
     st.markdown('<div style="font-family:\'Syne\',sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:1rem">💬 Chat with your Meeting</div>', unsafe_allow_html=True)
 
-    # Chat history display
     if st.session_state.chat_history:
         chat_html = '<div class="chat-container">'
         for msg in st.session_state.chat_history:
@@ -507,7 +440,6 @@ if st.session_state.result:
             <div style="color:var(--text-muted);font-size:0.85rem">Ask anything about your meeting transcript</div>
         </div>""", unsafe_allow_html=True)
 
-    # Chat input
     chat_col1, chat_col2 = st.columns([5, 1], gap="small")
     with chat_col1:
         user_input = st.text_input("Your question", placeholder="What were the main decisions made?", label_visibility="collapsed")
@@ -527,7 +459,6 @@ if st.session_state.result:
             st.rerun()
 
 else:
-    # Empty state
     st.markdown("""
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5rem 2rem;text-align:center">
         <div style="font-size:4rem;margin-bottom:1rem">🎬</div>
