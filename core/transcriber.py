@@ -1,21 +1,19 @@
-import whisper
 import os
 import requests
-import torch
+from groq import Groq
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from pydub import AudioSegment
 from dotenv import load_dotenv
-from tqdm import tqdm
 
 load_dotenv(dotenv_path=".env",override=True)
 
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 # Sarvam's sync STT-translate API rejects audio longer than 30s.
 # We slice each chunk into 25s pieces (with a 5s safety margin) before sending.
 SARVAM_PIECE_SECONDS = 25
-
-
-WHISPER_MODEL = os.getenv("WHISPER_MODEL","small")
 
 
 
@@ -24,29 +22,17 @@ SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
 SARVAM_STT_TRANSLATE_URL = "https://api.sarvam.ai/speech-to-text-translate"
 SARVAM_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v2.5")
 
-_model = None
+def transcribe_chunk_groq(chunk_path: str) -> str:
 
+    with open(chunk_path, "rb") as audio_file:
 
+        transcription = client.audio.transcriptions.create(
+            file=audio_file,
+            model="whisper-large-v3",
+            response_format="verbose_json"
+        )
 
-
-def load_model():
-
-    global _model  
-
-    if _model is None: 
-        print(f"Loading Whisper model: {WHISPER_MODEL} ...")
-        _model = whisper.load_model(WHISPER_MODEL).to("cuda")
-        print("Whisper model loaded.")
-    return _model 
-
-
-def transcribe_chunk_whisper(chunk_path: str) -> str:
-
-    model = load_model()  
-
-    result = model.transcribe(chunk_path, task="transcribe")
-    return result["text"]  
-
+    return transcription.text.strip()
 
 def _send_to_sarvam(piece_path: str) -> str:
     """Send one ≤30s WAV file to Sarvam and return the English transcript."""
@@ -111,24 +97,28 @@ def transcribe_chunk(chunk_path: str, language: str = "english") -> str:
     """
     if language.lower() == "hinglish":
         return transcribe_chunk_sarvam(chunk_path)
-    return transcribe_chunk_whisper(chunk_path)
+    return transcribe_chunk_groq(chunk_path)
 
 
-def transcribe_all(chunks: list, language: str = "english") -> str:
+def transcribe_all(chunks, language="english"):
 
-    full_transcript = "" 
+    results = [""] * len(chunks)
 
-    engine = "Sarvam AI" if language.lower() == "hinglish" else "Whisper"
-    print(f"Using {engine} for transcription.")
+    with ThreadPoolExecutor(max_workers=4) as executor:
 
-    for i, chunk in enumerate(chunks):  
+        future_map = {
+            executor.submit(transcribe_chunk, chunk, language): idx
+            for idx, chunk in enumerate(chunks)
+        }
 
-        print(f"Transcribing chunk {i + 1}/{len(chunks)}...")
+        for future in as_completed(future_map):
 
-        text = transcribe_chunk(chunk, language=language)  
+            idx = future_map[future]
 
-        full_transcript += text + " "  
+            try:
+                results[idx] = future.result()
 
-    print("Transcription complete.")
+            except Exception as e:
+                print(f"Chunk {idx} failed: {e}")
 
-    return full_transcript.strip()  
+    return " ".join(results)

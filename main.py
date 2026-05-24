@@ -1,67 +1,142 @@
 from dotenv import load_dotenv
+
 from utils.audio import process_input
 from core.transcriber import transcribe_all
 from core.summarizer import summarize, generate_title
-from core.extractor import extract_actions, extract_key_decisions, extract_questions
+from core.extractor import extract_meeting_insights
 from core.rag_engine import build_rag_chain, ask_question
-from const import dummygenerated
 
 
 load_dotenv()
 
-def run_pipeline(source :str, language :str = "english") -> dict:
-    print("starting AI Video Assistant")
 
+def run_pipeline(source: str, language: str = "english") -> dict:
+
+    print("🚀 Starting AI Video Assistant...\n")
+
+    # STEP 1 — Audio Processing
     chunks = process_input(source)
 
-    transcript = transcribe_all(chunks,language)
-    print(f"raw transcription (first 300 characters ) {transcript[:300]}")
+    # STEP 2 — Transcription
+    transcript = transcribe_all(chunks, language)
 
+    print(
+        f"\n📝 Raw transcription "
+        f"(first 300 chars):\n{transcript[:300]}\n"
+    )
+
+    # STEP 3 — Metadata Generation
     title = generate_title(transcript)
 
     summary = summarize(transcript)
 
-    action_item = extract_actions(transcript)
+    # STEP 4 — Structured Extraction
+    insights = extract_meeting_insights(transcript)
 
-    decisions = extract_key_decisions(transcript)
-    questions = extract_questions(transcript)
-    
-
-    rag_chain = build_rag_chain(dummygenerated)
+    # STEP 5 — Build RAG Chain
+    rag_chain = build_rag_chain(transcript)
 
     return {
         "title": title,
         "transcript": transcript,
         "summary": summary,
-        "action_items": action_item,
-        "key_decisions": decisions,
-        "open_questions": questions,
+
+        "action_items": insights.get("action_items", []),
+
+        "key_decisions": insights.get("key_decisions", []),
+
+        "open_questions": insights.get("open_questions", []),
+
         "rag_chain": rag_chain,
     }
 
+
 if __name__ == "__main__":
-    # CLI entry point
-    source = input("Enter YouTube URL or local file path: ").strip()
-    language = input("Language (english/hinglish): ").strip() or "english"
+
+    source = input(
+        "Enter YouTube URL or local file path: "
+    ).strip()
+
+    language = (
+        input("Language (english/hinglish): ").strip()
+        or "english"
+    )
+
     result = run_pipeline(source, language)
 
     print("\n" + "=" * 60)
-    print(f"📌 Title: {result['title']}")
-    print(f"\n📋 Summary:\n{result['summary']}")
-    print(f"\n✅ Action Items:\n{result['action_items']}")
-    print(f"\n🔑 Key Decisions:\n{result['key_decisions']}")
-    print(f"\n❓ Open Questions:\n{result['open_questions']}")
-    print("=" * 60)
 
-    # Phase 2 — Chat with your meeting via RAG
-    print("\n💬 Chat with your meeting (type 'exit' to quit)\n")
+    print(f"📌 TITLE: {result['title']}")
+
+    print("\n📋 SUMMARY")
+    print("-" * 60)
+    print(result["summary"])
+
+    print("\n✅ ACTION ITEMS")
+    print("-" * 60)
+
+    if result["action_items"]:
+
+        for item in result["action_items"]:
+
+            print(f"- Task: {item.get('task', 'N/A')}")
+            print(f"  Owner: {item.get('owner', 'N/A')}")
+            print(
+                f"  Deadline: "
+                f"{item.get('deadline', 'Not specified')}"
+            )
+            print()
+
+    else:
+
+        print("No action items found.")
+
+    print("\n🔑 KEY DECISIONS")
+    print("-" * 60)
+
+    if result["key_decisions"]:
+
+        for decision in result["key_decisions"]:
+
+            print(f"- {decision}")
+
+    else:
+
+        print("No key decisions found.")
+
+    print("\n❓ OPEN QUESTIONS")
+    print("-" * 60)
+
+    if result["open_questions"]:
+
+        for question in result["open_questions"]:
+
+            print(f"- {question}")
+
+    else:
+
+        print("No open questions found.")
+
+    print("\n" + "=" * 60)
+
+    # STEP 6 — Interactive RAG Chat
+    print("\n💬 Chat with your transcript")
+    print("Type 'exit' to quit.\n")
+
     rag_chain = result["rag_chain"]
+
     while True:
+
         question = input("You: ").strip()
+
         if question.lower() in ["exit", "quit", "q"]:
+
             print("👋 Goodbye!")
             break
+
         if not question:
             continue
+
         answer = ask_question(rag_chain, question)
-        print(f"\n🤖 Assistant: {answer}\n")
+
+        print(f"\n🤖 Assistant:\n{answer}\n")

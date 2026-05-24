@@ -1,15 +1,9 @@
 import os
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from core.vector_store import build_vector_store, load_vector_store, get_retriever
-
-def get_llm():
-    return ChatOllama(
-        model="gemma4:latest",
-        temperature=0.3,
-    )
+from core.llm import get_llm
 
 def format_docs(docs):
     return "\n\n".join([doc.page_content for doc in docs])

@@ -8,59 +8,79 @@ DOWNLOAD_DIR = 'downloades'
 os.makedirs(DOWNLOAD_DIR,exist_ok=True)
 
 
-def download_audio(url:str)->str:
-    output_path = os.path.join(DOWNLOAD_DIR,"%(title)s.%(ext)s")
+def download_audio(url: str) -> str:
+
+    output_path = os.path.join(
+        DOWNLOAD_DIR,
+        "%(title)s.%(ext)s"
+    )
+
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_path,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'wav',
-            'preferredquality': '192',
+            'preferredcodec': 'mp3',
         }],
     }
-    
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
         info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info).replace('.webm', '.wav').replace('.m4a', '.wav')
-    
+
+        filename = ydl.prepare_filename(info)
+
+        filename = os.path.splitext(filename)[0] + ".mp3"
+
     return filename
 
 
-def convert_to_wav(input_path: str) -> str:
-    """Convert any audio/video file to WAV format using pydub."""
-    output_path = os.path.splitext(input_path)[0] + "_converted.wav"
-    audio = AudioSegment.from_file(input_path)
-    audio = audio.set_channels(1).set_frame_rate(16000) #16khz
-    audio.export(output_path, format="wav")
-    return output_path
 
+def chunk_audio(audio_path: str, chunk_minutes: int = 5) -> list:
 
+    audio = AudioSegment.from_file(audio_path)
 
-def chunk_audio(wav_path : str , chunk_minutes : int = 10) -> list:
-    audio = AudioSegment.from_wav(wav_path)
-    chunk_ms = chunk_minutes * 60 * 1000 
+    audio = audio.set_channels(1)
+    audio = audio.set_frame_rate(16000)
+
+    chunk_ms = chunk_minutes * 60 * 1000
 
     chunks = []
 
-    for i, start in enumerate(range(0,len(audio),chunk_ms)):
-        chunk = audio[start : start + chunk_ms]
-        chunk_path = f"{wav_path}_chunk_{i}.wav"
-        chunk.export(chunk_path , format = "wav")
+    for i, start in enumerate(range(0, len(audio), chunk_ms)):
+
+        chunk = audio[start:start + chunk_ms]
+
+        chunk_path = f"{audio_path}_chunk_{i}.mp3"
+
+        chunk.export(
+            chunk_path,
+            format="mp3",
+            bitrate="64k"
+        )
+
         chunks.append(chunk_path)
-    
+
     return chunks
 
 def process_input(source: str) -> list:
+
     if source.startswith("http://") or source.startswith("https://"):
+
         print("Detected YouTube URL. Downloading audio...")
-        wav_path = download_audio(source)
+
+        audio_path = download_audio(source)
+
     else:
-        print("Detected local file. Converting to WAV...")
-        wav_path = convert_to_wav(source)
+
+        print("Detected local file...")
+
+        audio_path = source
 
     print("Chunking audio...")
-    chunks = chunk_audio(wav_path)
-    print(f"Audio ready — {len(chunks)} chunk(s) created.")
-    return chunks
 
+    chunks = chunk_audio(audio_path)
+
+    print(f"Audio ready — {len(chunks)} chunk(s) created.")
+
+    return chunks

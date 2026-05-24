@@ -1,12 +1,8 @@
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-
-
-def get_llm():
-    return ChatOllama(model = "gemma4:latest", temperature=0.3)
+from core.llm import get_llm
 
 
 def split_transcript(transcript: str) -> list:

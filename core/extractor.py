@@ -1,16 +1,10 @@
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from core.llm import get_llm
+import json
 
-
-
-def get_llm():
-    return ChatOllama(
-        model="gemma4:latest",
-        temperature=0.2
-    )
 
 def split_transcript(transcript: str) -> list:
     splitter = RecursiveCharacterTextSplitter(
@@ -38,86 +32,129 @@ def build_chain(system_prompt: str):
     )
 
 
-def process_transcript(
-    transcript: str,
-    map_prompt: str,
-    combine_prompt: str
-) -> str:
+EXTRACTION_PROMPT = """
+You are an expert meeting analyst.
+
+Extract the following from this meeting transcript chunk:
+
+1. Action Items
+2. Key Decisions
+3. Open Questions
+
+Return ONLY valid JSON.
+
+Format:
+
+{{
+  "action_items": [
+    {{
+      "task": "",
+      "owner": "",
+      "deadline": ""
+    }}
+  ],
+  "key_decisions": [],
+  "open_questions": []
+}}
+
+If a section has no items, return an empty list.
+
+Transcript:
+{text}
+"""
+
+
+
+def extract_meeting_insights(transcript: str):
+
+    llm = get_llm()
+
+    prompt = ChatPromptTemplate.from_template(
+        EXTRACTION_PROMPT
+    )
+
+    chain = prompt | llm | StrOutputParser()
 
     chunks = split_transcript(transcript)
 
-    map_chain = build_chain(map_prompt)
+    all_actions = []
+    all_decisions = []
+    all_questions = []
 
-    partial_outputs = [
-        map_chain.invoke(chunk)
-        for chunk in chunks
-    ]
+    for chunk in chunks:
 
-    combined_text = "\n\n".join(partial_outputs)
+        try:
 
-    combine_chain = build_chain(combine_prompt)
+            result = chain.invoke({"text": chunk})
 
-    return combine_chain.invoke(combined_text)
+            print("\nRAW LLM OUTPUT:")
+            print(result)
+            print("=" * 60)
 
+            result = result.strip()
 
-def extract_actions(transcript: str) -> str:
+            result = result.replace("```json", "")
+            result = result.replace("```", "")
 
-    map_prompt = (
-        "Extract all action items from this portion of the meeting transcript.\n\n"
-        "For each action item provide:\n"
-        "- Task description\n"
-        "- Owner\n"
-        "- Deadline (or 'Not specified')\n\n"
-        "If none found say 'No action items found.'"
-    )
+            result = result.strip()
 
-    combine_prompt = (
-        "Combine and deduplicate these extracted action items into one final list.\n"
-        "Merge similar items.\n"
-        "Keep the final output concise and structured."
-    )
-
-    return process_transcript(
-        transcript,
-        map_prompt,
-        combine_prompt
-    )
+            parsed = json.loads(result)
 
 
-def extract_key_decisions(transcript: str) -> str:
 
-    map_prompt = (
-        "Extract all key decisions made in this portion of the meeting transcript.\n"
-        "Format as a numbered list.\n"
-        "If none found say 'No key decisions found.'"
-    )
+            all_actions.extend(
+                parsed.get("action_items", [])
+            )
 
-    combine_prompt = (
-        "Combine and deduplicate these key decisions into one final clean numbered list."
-    )
+            all_decisions.extend(
+                parsed.get("key_decisions", [])
+            )
 
-    return process_transcript(
-        transcript,
-        map_prompt,
-        combine_prompt
-    )
+            all_questions.extend(
+                parsed.get("open_questions", [])
+            )
 
+        except Exception as e:
 
-def extract_questions(transcript: str) -> str:
+            print(f"Extraction failed: {e}")
 
-    map_prompt = (
-        "Extract unresolved questions or follow-up topics from this portion "
-        "of the meeting transcript.\n"
-        "Format as a numbered list.\n"
-        "If none found say 'No open questions found.'"
-    )
+    return {
+        "action_items": dedupe_actions(all_actions),
+        "key_decisions": dedupe_list(all_decisions),
+        "open_questions": dedupe_list(all_questions)
+    }
 
-    combine_prompt = (
-        "Combine and deduplicate these unresolved questions into one final list."
-    )
+def dedupe_list(items):
 
-    return process_transcript(
-        transcript,
-        map_prompt,
-        combine_prompt
-    )
+    seen = set()
+    result = []
+
+    for item in items:
+
+        normalized = item.strip().lower()
+
+        if normalized not in seen:
+
+            seen.add(normalized)
+            result.append(item)
+
+    return result
+
+def dedupe_actions(actions):
+
+    seen = set()
+    result = []
+
+    for action in actions:
+
+        key = (
+            action.get("task", "").strip().lower(),
+            action.get("owner", "").strip().lower()
+        )
+
+        if key not in seen:
+
+            seen.add(key)
+            result.append(action)
+
+    return result
