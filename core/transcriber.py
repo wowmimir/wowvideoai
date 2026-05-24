@@ -65,15 +65,22 @@ def transcribe_chunk_sarvam(chunk_path: str) -> str:
     if not SARVAM_API_KEY:
         raise RuntimeError("SARVAM_API_KEY is not set in environment / .env")
 
-    audio = AudioSegment.from_wav(chunk_path)
-    piece_ms = SARVAM_PIECE_SECONDS * 1000
+    # ✅ Use from_file() instead of from_wav() — chunk_path may be an MP3
+    audio = AudioSegment.from_file(chunk_path)
 
+    # Convert to mono 16kHz WAV for Sarvam compatibility
+    audio = audio.set_channels(1).set_frame_rate(16000)
+
+    piece_ms = SARVAM_PIECE_SECONDS * 1000
     full_text = ""
     total_pieces = (len(audio) + piece_ms - 1) // piece_ms
 
     for i, start in enumerate(range(0, len(audio), piece_ms)):
         piece = audio[start: start + piece_ms]
-        piece_path = f"{chunk_path}_sv_{i}.wav"
+
+        # ✅ Use a separate, unambiguous temp filename (avoid path collision)
+        base = os.path.splitext(chunk_path)[0]
+        piece_path = f"{base}_sv_piece_{i}.wav"
         piece.export(piece_path, format="wav")
 
         try:
@@ -84,7 +91,6 @@ def transcribe_chunk_sarvam(chunk_path: str) -> str:
                 os.remove(piece_path)
 
     return full_text.strip()
-
    
 
 
